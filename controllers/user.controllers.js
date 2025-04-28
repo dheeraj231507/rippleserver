@@ -1,7 +1,8 @@
-import { db } from "../db/dbconnection.js";
+import { db, admin } from "../db/dbconnection.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
+import User from "../models/user.model.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_strong_secret_key";
 
@@ -19,13 +20,12 @@ export const registerUser = async (req, res, next) => {
     }
 
     // Check if user exists
-    const usersRef = db.ref("users");
-    const snapshot = await usersRef
-      .orderByChild("email")
-      .equalTo(email)
-      .once("value");
+    const snapshot = await db
+      .collection("users")
+      .where("email", "==", email)
+      .get();
 
-    if (snapshot.exists()) {
+    if (!snapshot.empty) {
       return res.status(409).json({
         success: false,
         error: "Email already registered",
@@ -36,15 +36,15 @@ export const registerUser = async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create user
-    const newUserRef = usersRef.push();
-    await newUserRef.set({
+    // Create user using the model
+    const newUser = new User({
       name,
       email,
       password: hashedPassword,
-      createdAt: new Date().toISOString(),
-      refreshTokens: {}, // Initialize empty refresh tokens
     });
+
+    // Save user to Firestore
+    await db.collection("users").add(newUser.toFirestore());
 
     res.status(201).json({
       success: true,
@@ -69,23 +69,21 @@ export const loginUser = async (req, res, next) => {
     }
 
     // Find user
-    const usersRef = db.ref("users");
-    const snapshot = await usersRef
-      .orderByChild("email")
-      .equalTo(email)
-      .once("value");
+    const snapshot = await db
+      .collection("users")
+      .where("email", "==", email)
+      .get();
 
-    if (!snapshot.exists()) {
+    if (snapshot.empty) {
       return res.status(401).json({
         success: false,
         error: "Invalid credentials",
       });
     }
 
-    // Get user data
-    const userKey = Object.keys(snapshot.val())[0];
-    const user = snapshot.val()[userKey];
-    const userId = userKey;
+    const userDoc = snapshot.docs[0];
+    const user = userDoc.data();
+    const userId = userDoc.id;
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -106,8 +104,12 @@ export const loginUser = async (req, res, next) => {
     });
 
     // Save refresh token to database
-    await db.ref(`users/${userId}/refreshTokens/${deviceId}`).set(refreshToken);
-
+    await db
+      .collection("users")
+      .doc(userId)
+      .update({
+        [`refreshTokens.${deviceId}`]: refreshToken,
+      });
     // Set cookies
     res.cookie("accessToken", accessToken, {
       httpOnly: true,
@@ -158,7 +160,12 @@ export const logoutUser = async (req, res, next) => {
         const { userId, deviceId } = decoded;
 
         // Remove refresh token from database
-        await db.ref(`users/${userId}/refreshTokens/${deviceId}`).remove();
+        await db
+          .collection("users")
+          .doc(userId)
+          .update({
+            [`refreshTokens.${deviceId}`]: admin.firestore.FieldValue.delete(),
+          });
       } catch (error) {
         // Even if token verification fails, proceed with logout
         console.log("Token verification failed during logout:", error.message);
@@ -196,9 +203,17 @@ export const refreshToken = async (req, res, next) => {
     const { userId, deviceId } = decoded;
 
     // Verify refresh token exists in database
-    const userRef = db.ref(`users/${userId}/refreshTokens/${deviceId}`);
-    const snapshot = await userRef.once("value");
-    const storedToken = snapshot.val();
+    const userDoc = await db.collection("users").doc(userId).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    const user = userDoc.data();
+    const storedToken = user.refreshTokens?.[deviceId];
 
     if (!storedToken || storedToken !== refreshToken) {
       return res.status(401).json({
@@ -219,10 +234,6 @@ export const refreshToken = async (req, res, next) => {
       sameSite: "strict",
       maxAge: 15 * 60 * 1000, // 15 minutes
     });
-
-    // Get user data
-    const userSnapshot = await db.ref(`users/${userId}`).once("value");
-    const user = userSnapshot.val();
 
     // Don't send sensitive data
     const userResponse = {
@@ -245,9 +256,8 @@ export const refreshToken = async (req, res, next) => {
 export const getCurrentUser = async (req, res, next) => {
   try {
     const userId = req.userId;
-    const userRef = db.ref(`users/${userId}`);
-    const snapshot = await userRef.once("value");
-    const user = snapshot.val();
+    const userDoc = await db.collection("users").doc(userId).get();
+    const user = userDoc.data();
 
     if (!user) {
       return res.status(404).json({

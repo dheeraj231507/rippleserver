@@ -2,7 +2,7 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { OpenAI } from "openai";
 import dotenv from "dotenv"; // Import dotenv
-import { db, admin } from "../db/dbconnection.js"; // Import admin
+import { db, admin, bucket } from "../db/dbconnection.js"; // Import admin
 
 // Configure dotenv
 dotenv.config();
@@ -113,35 +113,41 @@ export const upload = multer({
 export const analyzePhoto = async (req, res) => {
   try {
     const fileBuffer = req.file.buffer; // Get the file buffer from multer
+    // Parse the exifData JSON string into a JavaScript object
+    const exifData = JSON.parse(req.body.exifData);
 
+    // Validate the required EXIF data fields
+    const requiredExifData = {
+      Model: exifData?.Model || null,
+      LensModel: exifData?.LensModel || null,
+      FocalLength: exifData?.FocalLength || null,
+      ShutterSpeedValue: exifData?.ShutterSpeedValue || null,
+      ApertureValue: exifData?.ApertureValue || null,
+      ISO: exifData?.ISO || null,
+    };
+
+    console.log("Parsed EXIF Data:", requiredExifData);
     // Upload to Firebase Storage
-    const bucket = admin.storage().bucket("gs://fotoreviewai-mvp");
-    const result = await new Promise((resolve, reject) => {
-      const fileName = `uploads/${Date.now()}.jpg`; // You can also use uuid
-      const file = bucket.file(fileName);
+    const fileName = `uploads/${Date.now()}.jpg`;
+    const file = bucket.file(fileName);
 
+    const result = await new Promise((resolve, reject) => {
       const stream = file.createWriteStream({
         metadata: {
           contentType: "image/jpeg",
         },
       });
 
-      stream.on("error", (err) => reject(err));
-
+      stream.on("error", reject);
       stream.on("finish", async () => {
         try {
-          // Make file publicly readable
           await file.makePublic();
-
-          // Get public URL
           const publicUrl = `https://storage.googleapis.com/${bucket.name}/${file.name}`;
-
-          resolve({ secure_url: publicUrl }); // Mimic Cloudinary style
+          resolve({ secure_url: publicUrl });
         } catch (error) {
           reject(error);
         }
       });
-
       stream.end(fileBuffer);
     });
 
@@ -170,18 +176,26 @@ export const analyzePhoto = async (req, res) => {
     const analysisData = {
       analysis: analysis.choices[0].message,
       imageUrl: result.secure_url,
-      createdAt: new Date().toISOString(),
+      exifData: {
+        Model: exifData?.Model || null,
+        LensModel: exifData?.LensModel || null,
+        FocalLength: exifData?.FocalLength || null,
+        ShutterSpeedValue: exifData?.ShutterSpeedValue || null,
+        ApertureValue: exifData?.ApertureValue || null,
+        ISO: exifData?.ISO || null,
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      userId: req.userId,
     };
 
-    // Store in Firebase Realtime Database
-    const dbRef = db.ref("photoAnalyses");
-    const newAnalysisRef = dbRef.push();
-    await newAnalysisRef.set(analysisData);
+    // Save analysis data to Firestore
+    await db.collection("photoAnalyses").add(analysisData);
 
     // Send response
     res.json({
       analysis: analysis.choices[0].message,
       imageUrl: result.secure_url,
+      exifData: analysisData.exifData,
     });
   } catch (error) {
     console.error("❌ Error:", error.message);

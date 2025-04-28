@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "../db/dbconnection.js";
+import User from "../models/user.model.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const ACCESS_TOKEN_EXPIRY = "15m";
@@ -27,27 +28,28 @@ export const registerUser = async (req, res) => {
     const { name, email, password } = req.body;
 
     // Check if user exists
-    const usersRef = db.ref("users");
-    const snapshot = await usersRef
-      .orderByChild("email")
-      .equalTo(email)
-      .once("value");
+    const snapshot = await db
+      .collection("users")
+      .where("email", "==", email)
+      .get();
 
-    if (snapshot.exists()) {
+    if (!snapshot.empty) {
       return res.status(400).json({ message: "Email already exists" });
     }
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
-    // Create user
-    const newUserRef = usersRef.push();
-    await newUserRef.set({
+    // Create user using the User model
+    const newUser = new User({
       name,
       email,
       password: hashedPassword,
       refreshTokens: {},
     });
+
+    // Save user to Firestore
+    await db.collection("users").add(newUser.toFirestore());
 
     res.status(201).json({ message: "User registered successfully" });
   } catch (error) {
@@ -63,21 +65,21 @@ export const loginUser = async (req, res) => {
     const deviceId = uuidv4();
 
     // Find user
-    const usersRef = db.ref("users");
-    const snapshot = await usersRef
-      .orderByChild("email")
-      .equalTo(email)
-      .once("value");
+    const snapshot = await db
+      .collection("users")
+      .where("email", "==", email)
+      .get();
 
-    if (!snapshot.exists()) {
+    if (snapshot.empty) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    const userData = Object.values(snapshot.val())[0];
-    const userId = Object.keys(snapshot.val())[0];
+    const userDoc = snapshot.docs[0];
+    const user = User.fromFirestore(userDoc.data());
+    const userId = userDoc.id;
 
     // Verify password
-    const isMatch = await bcrypt.compare(password, userData.password);
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
@@ -86,9 +88,8 @@ export const loginUser = async (req, res) => {
     const { accessToken, refreshToken } = generateTokens(userId, deviceId);
 
     // Store refresh token
-    await usersRef
-      .child(`${userId}/refreshTokens/${deviceId}`)
-      .set(refreshToken);
+    user.refreshTokens[deviceId] = refreshToken;
+    await db.collection("users").doc(userId).update(user.toFirestore());
 
     // Set HTTP-only cookies
     res.cookie("accessToken", accessToken, {
@@ -126,9 +127,14 @@ export const refreshToken = async (req, res) => {
     const { userId, deviceId } = decoded;
 
     // Verify refresh token exists in DB
-    const userRef = db.ref(`users/${userId}/refreshTokens/${deviceId}`);
-    const snapshot = await userRef.once("value");
-    const storedToken = snapshot.val();
+    const userDoc = await db.collection("users").doc(userId).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const user = User.fromFirestore(userDoc.data());
+    const storedToken = user.refreshTokens?.[deviceId];
 
     if (storedToken !== refreshToken) {
       return res.status(401).json({ message: "Invalid refresh token" });
@@ -157,7 +163,11 @@ export const logout = async (req, res) => {
     const { userId, deviceId } = req.user;
 
     // Remove refresh token from DB
-    await db.ref(`users/${userId}/refreshTokens/${deviceId}`).remove();
+    const userDoc = await db.collection("users").doc(userId).get();
+    const user = User.fromFirestore(userDoc.data());
+    delete user.refreshTokens[deviceId];
+
+    await db.collection("users").doc(userId).update(user.toFirestore());
 
     // Clear cookies
     res.clearCookie("accessToken");
@@ -174,7 +184,11 @@ export const logoutAll = async (req, res) => {
     const { userId } = req.user;
 
     // Remove all refresh tokens
-    await db.ref(`users/${userId}/refreshTokens`).remove();
+    const userDoc = await db.collection("users").doc(userId).get();
+    const user = User.fromFirestore(userDoc.data());
+    user.refreshTokens = {};
+
+    await db.collection("users").doc(userId).update(user.toFirestore());
 
     // Clear cookies
     res.clearCookie("accessToken");

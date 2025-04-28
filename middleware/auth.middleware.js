@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { db } from "../db/dbconnection.js";
+import User from "../models/user.model.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_strong_secret_key";
 
@@ -16,11 +17,9 @@ export const authMiddleware = async (req, res, next) => {
 
     const decoded = jwt.verify(accessToken, JWT_SECRET);
 
-    // Verify user still exists
-    const userRef = db.ref(`users/${decoded.userId}`);
-    const snapshot = await userRef.once("value");
+    const userDoc = await db.collection("users").doc(decoded.userId).get();
 
-    if (!snapshot.exists()) {
+    if (!userDoc.exists) {
       return res.status(401).json({
         success: false,
         error: "User not found",
@@ -28,7 +27,7 @@ export const authMiddleware = async (req, res, next) => {
     }
 
     req.userId = decoded.userId;
-    req.user = snapshot.val();
+    req.user = User.fromFirestore(userDoc.data());
     next();
   } catch (error) {
     next(error);
@@ -50,9 +49,17 @@ export const refreshAccessToken = async (req, res, next) => {
     const { userId, deviceId } = decoded;
 
     // Verify refresh token exists in database
-    const userRef = db.ref(`users/${userId}/refreshTokens/${deviceId}`);
-    const snapshot = await userRef.once("value");
-    const storedToken = snapshot.val();
+    const userDoc = await db.collection("users").doc(userId).get();
+
+    if (!userDoc.exists) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid session",
+      });
+    }
+
+    const user = User.fromFirestore(userDoc.data());
+    const storedToken = user.refreshTokens?.[deviceId];
 
     if (!storedToken || storedToken !== refreshToken) {
       return res.status(401).json({

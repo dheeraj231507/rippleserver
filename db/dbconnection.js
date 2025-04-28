@@ -10,6 +10,7 @@ admin.initializeApp({
   databaseURL: "https://fotoreviewai-mvp-default-rtdb.firebaseio.com/",
 });
 
-const db = admin.database(); // For Realtime Database
+const db = admin.firestore(); // Changed to Firestore
+const bucket = admin.storage().bucket("gs://fotoreviewai-mvp");
 
-export { db, admin };
+export { db, admin, bucket };
