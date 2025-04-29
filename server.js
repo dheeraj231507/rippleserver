@@ -11,6 +11,7 @@ import photoRoutes from "./routes/photo.route.js";
 import { db } from "./db/dbconnection.js";
 import dotenv from "dotenv"; // Import dotenv
 import cors from "cors";
+import galleryRoutes from "./routes/gallery.route.js"; // Import gallery routes
 
 // Configure dotenv
 dotenv.config();
@@ -49,6 +50,7 @@ app.use((req, res, next) => {
 // Routes
 app.use("/api/users", userRoutes);
 app.use("/api/photos", photoRoutes); // Add photo routes
+app.use("/api/gallery", galleryRoutes); // Add gallery routes
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {
