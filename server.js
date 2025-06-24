@@ -26,7 +26,7 @@ cloudinary.config({
 const app = express();
 
 
-const CLIENT_ORIGIN = "https://rippleshotaifront.vercel.app";
+const CLIENT_ORIGIN = "https://rippleshotaifront.vercel.app/";
 
 const corsOptions = {
   origin: CLIENT_ORIGIN,
