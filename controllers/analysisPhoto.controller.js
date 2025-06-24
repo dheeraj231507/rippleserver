@@ -2,7 +2,7 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { OpenAI } from "openai";
 import dotenv from "dotenv"; // Import dotenv
-import { db, admin, bucket } from "../db/dbconnection.js"; // Import admin
+import { db, admin } from "../db/dbconnection.js"; // Import admin
 
 // Configure dotenv
 dotenv.config();
@@ -128,28 +128,42 @@ export const analyzePhoto = async (req, res) => {
 
     console.log("Parsed EXIF Data:", requiredExifData);
     // Upload to Firebase Storage
-    const fileName = `uploads/${Date.now()}.jpg`;
-    const file = bucket.file(fileName);
+    // const fileName = `uploads/${Date.now()}.jpg`;
+    // const file = bucket.file(fileName);
 
-    const result = await new Promise((resolve, reject) => {
-      const stream = file.createWriteStream({
-        metadata: {
-          contentType: "image/jpeg",
-        },
-      });
+    // const result = await new Promise((resolve, reject) => {
+    //   const stream = file.createWriteStream({
+    //     metadata: {
+    //       contentType: "image/jpeg",
+    //     },
+    //   });
 
-      stream.on("error", reject);
-      stream.on("finish", async () => {
-        try {
-          await file.makePublic();
-          const publicUrl = `https://storage.googleapis.com/${bucket.name}/${file.name}`;
-          resolve({ secure_url: publicUrl });
-        } catch (error) {
-          reject(error);
-        }
-      });
-      stream.end(fileBuffer);
+    //   stream.on("error", reject);
+    //   stream.on("finish", async () => {
+    //     try {
+    //       await file.makePublic();
+    //       const publicUrl = `https://storage.googleapis.com/${bucket.name}/${file.name}`;
+    //       resolve({ secure_url: publicUrl });
+    //     } catch (error) {
+    //       reject(error);
+    //     }
+    //   });
+    //   stream.end(fileBuffer);
+    // });
+
+    const uploadResult = await new Promise((resolve, reject) => {
+      cloudinary.uploader
+        .upload_stream(
+          { resource_type: "image", folder: "uploads" },
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result);
+          }
+        )
+        .end(fileBuffer);
     });
+
+    const publicUrl = uploadResult.secure_url;
 
     // Send to OpenAI Vision API
     const analysis = await openai.chat.completions.create({
@@ -163,7 +177,7 @@ export const analyzePhoto = async (req, res) => {
             {
               type: "image_url",
               image_url: {
-                url: result.secure_url,
+                url: publicUrl, //result.secure_url,
               },
             },
           ],
@@ -175,7 +189,7 @@ export const analyzePhoto = async (req, res) => {
     // Create analysis data object
     const analysisData = {
       analysis: analysis.choices[0].message,
-      imageUrl: result.secure_url,
+      imageUrl: publicUrl, // result.secure_url,
       exifData: {
         Model: exifData?.Model || null,
         LensModel: exifData?.LensModel || null,
@@ -194,7 +208,7 @@ export const analyzePhoto = async (req, res) => {
     // Send response
     res.json({
       analysis: analysis.choices[0].message,
-      imageUrl: result.secure_url,
+      imageUrl: publicUrl,
       exifData: analysisData.exifData,
     });
   } catch (error) {
