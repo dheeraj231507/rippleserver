@@ -26,26 +26,13 @@ cloudinary.config({
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const allowedOrigins = ["https://rippleshotaifront.vercel.app"];
-
-app.use(cors({
-  origin: allowedOrigins,
+const corsOptions = {
+  origin: "https://rippleshotaifront.vercel.app",
   credentials: true,
-}));
+};
 
-// This handles preflight requests
-app.options("*", cors());
-
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "https://rippleshotaifront.vercel.app");
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
-});
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
