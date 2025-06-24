@@ -28,6 +28,7 @@ const app = express();
 
 const corsOptions = {
   origin: "https://rippleshotaifront.vercel.app",
+  methods: ['GET', 'POST'],
   credentials: true,
 };
 
