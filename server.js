@@ -26,14 +26,33 @@ cloudinary.config({
 const app = express();
 
 
+const CLIENT_ORIGIN = "https://rippleshotaifront.vercel.app";
+
 const corsOptions = {
-  origin: "https://rippleshotaifront.vercel.app",
-  methods: ['GET', 'POST'],
+  origin: CLIENT_ORIGIN,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true,
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+
+// ✅ Extra layer: Manually set headers to handle OPTIONS preflight
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", CLIENT_ORIGIN);
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
