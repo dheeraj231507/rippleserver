@@ -24,10 +24,10 @@ cloudinary.config({
 });
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+
 
 const corsOptions = {
-  origin: "http://localhost:5173",
+  origin: "https://rippleshotaifront.vercel.app",
   credentials: true,
 };
 
@@ -88,6 +88,4 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
+
