@@ -2,7 +2,7 @@ import admin from "firebase-admin";
 import fs from "fs";
 
 const serviceAccount = JSON.parse(
-  fs.readFileSync(new URL("../RippleShotAI.json", import.meta.url))
+  fs.readFileSync(new URL("../RippleShotAi.json", import.meta.url))
 );
 
 admin.initializeApp({
