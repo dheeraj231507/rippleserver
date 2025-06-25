@@ -24,6 +24,7 @@ cloudinary.config({
 });
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
 
 const CLIENT_ORIGIN = "https://rippleshotaifront.vercel.app";
@@ -108,4 +109,8 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
+
 
